@@ -10,13 +10,13 @@ from ..job import Job
 
 
 class TestRunJobController(TransactionCase):
-    def setUp(cls):
+    def setUp(self):
         super().setUp()
 
         def _clean_queue_job():
-            cls.env["queue.job"].search([]).unlink()
+            self.env["queue.job"].search([]).unlink()
 
-        cls.addCleanup(_clean_queue_job)
+        self.addCleanup(_clean_queue_job)
 
     def test_get_failure_values(self):
         method = self.env["res.users"].mapped
@@ -49,3 +49,14 @@ class TestRunJobController(TransactionCase):
             RunJobController._runjob(self.env, job)
             self.assertEqual(job.state, "failed")
             self.assertEqual(mocked_hook.call_count, 1)
+
+    def test_runjob_on_fail_not_configured(self):
+        job = self.env["queue.job"].with_delay()._test_job(failure_rate=1)
+        with (
+            self.assertRaises(JobError),
+            patch("odoo.addons.queue_job.job.Job.in_temporary_env") as mocked_temp_env,
+            mute_logger("odoo.addons.queue_job.controllers.main"),
+        ):
+            mocked_temp_env.return_value.__enter__.return_value = self.env
+            RunJobController._runjob(self.env, job)
+        self.assertEqual(job.state, "failed")
