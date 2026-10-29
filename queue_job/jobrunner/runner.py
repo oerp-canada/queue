@@ -525,7 +525,6 @@ class QueueJobRunner:
         else:
             self._metrics_server = None
             _logger.info("jobrunner metrics server not configured")
-        metrics.jobs_to_do.set_function(self.channel_manager._jobs_to_do_gauge)
 
     def __del__(self):
         # pylint: disable=except-pass
@@ -657,6 +656,7 @@ class QueueJobRunner:
         self._channel_manager_by_db[db_name] = channel_manager
         self._channel_managers = [self._server_wide_channel_manager]
         self._notify_existing_jobs(db, channel_manager)
+        self.register_metrics()
 
     def _configure_db(self, db):
         """Build the channel manager for a database and reload its jobs"""
@@ -666,11 +666,12 @@ class QueueJobRunner:
         self._channel_managers = list(self._channel_manager_by_db.values())
         self._notify_existing_jobs(db, channel_manager)
         _logger.info("channels configuration loaded for db %s", db_name)
+        self.register_metrics()
 
     def _notify_existing_jobs(self, db, channel_manager):
         with db.select_jobs("state in %s", (NOT_DONE,)) as cr:
             for job_data in cr:
-                channel_manager.notify(db.db_name, *job_data)
+                channel_manager.notify(*job_data)
 
     def initialize_databases(self):
         for db_name in sorted(self.get_db_names()):
@@ -685,6 +686,10 @@ class QueueJobRunner:
                 _logger.info("queue job runner ready for db %s", db_name)
             else:
                 db.close()
+
+    def register_metrics(self):
+        for cm in self._channel_managers:
+            cm.register_metrics()
 
     def requeue_dead_jobs(self):
         for db in self.db_by_name.values():
@@ -778,7 +783,7 @@ class QueueJobRunner:
                 with db.select_jobs("uuid = %s", (uuid,)) as cr:
                     job_datas = cr.fetchone()
                     if job_datas:
-                        channel_manager.notify(db.db_name, *job_datas)
+                        channel_manager.notify(*job_datas)
                     else:
                         channel_manager.remove_job(uuid)
 
